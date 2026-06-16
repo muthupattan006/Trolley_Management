@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Billing Dashboard</title>
+  <meta name="description" content="IoT Smart Billing & Motor Control Dashboard — ESP32 + MQTT" />
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <!-- MQTT.js via CDN (WebSocket) -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+  <!-- ─── Header ─────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">🛒</span>
+        <div>
+          <h1>Smart Billing Dashboard</h1>
+          <p class="subtitle">ESP32 · MQTT · IoT Control</p>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="connection-status" id="conn-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Connecting…</span>
+      </div>
+      <div class="broker-input-group">
+        <label for="broker-ip">Broker IP</label>
+        <input type="text" id="broker-ip" value="192.168.1.100" placeholder="Pi 4 IP" />
+        <button id="connect-btn" onclick="reconnectMQTT()">Connect</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ─── Main Grid ────────────────────────────────────── -->
+  <main class="dashboard-grid">
+
+    <!-- ═══ BILLING PANEL ════════════════════════════════ -->
+    <section class="card billing-card" id="billing-panel">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="card-icon">🧾</span>
+          <h2>Billing System</h2>
+        </div>
+        <button class="btn-danger" id="clear-cart-btn" onclick="clearCart()">
+          🗑 Clear Cart
+        </button>
+      </div>
+
+      <!-- Last Scanned -->
+      <div class="last-scan-box" id="last-scan-box">
+        <div class="scan-icon">📦</div>
+        <div class="scan-content">
+          <p class="scan-label">Last Scanned Item</p>
+          <p class="scan-item" id="last-item-name">Waiting for barcode…</p>
+          <p class="scan-price" id="last-item-price">—</p>
+        </div>
+        <div class="scan-badge" id="scan-badge">SCAN</div>
+      </div>
+
+      <!-- Product Quick Reference -->
+      <div class="product-ref">
+        <p class="ref-title">Product Database</p>
+        <div class="product-chips">
+          <div class="chip" onclick="testScan('001')"><span>001</span> Soap <strong>₹50</strong></div>
+          <div class="chip" onclick="testScan('002')"><span>002</span> Brush <strong>₹30</strong></div>
+          <div class="chip" onclick="testScan('003')"><span>003</span> Shampoo <strong>₹80</strong></div>
+          <div class="chip" onclick="testScan('004')"><span>004</span> Toothpaste <strong>₹45</strong></div>
+          <div class="chip" onclick="testScan('005')"><span>005</span> Comb <strong>₹25</strong></div>
+        </div>
+      </div>
+
+      <!-- Cart Table -->
+      <div class="cart-table-wrap">
+        <table class="cart-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Item</th>
+              <th>ID</th>
+              <th>Price</th>
+            </tr>
+          </thead>
+          <tbody id="cart-tbody">
+            <tr class="empty-row">
+              <td colspan="4">No items yet. Scan a barcode to begin.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Total -->
+      <div class="total-bar">
+        <div class="total-info">
+          <span class="total-label">Total Items</span>
+          <span class="total-count" id="total-count">0</span>
+        </div>
+        <div class="total-amount-wrap">
+          <span class="total-label">Grand Total</span>
+          <span class="total-amount" id="grand-total">₹0</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ MOTOR CONTROL PANEL ═══════════════════════════ -->
+    <section class="card motor-card" id="motor-panel">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="card-icon">⚙️</span>
+          <h2>Motor Control</h2>
+        </div>
+        <div class="motor-live-badge" id="motor-live-badge">LIVE</div>
+      </div>
+
+      <!-- Motor Status Display -->
+      <div class="motor-status-ring-wrap">
+        <div class="motor-status-ring" id="motor-ring">
+          <div class="ring-inner">
+            <p class="ring-direction" id="ring-direction">STOPPED</p>
+            <p class="ring-speed" id="ring-speed">0</p>
+            <p class="ring-label">Speed</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Speed Slider -->
+      <div class="slider-section">
+        <div class="slider-header">
+          <label for="speed-slider">Speed</label>
+          <span class="slider-value" id="speed-display">0 / 255</span>
+        </div>
+        <input type="range" id="speed-slider" class="speed-slider"
+               min="0" max="255" value="0"
+               oninput="onSpeedChange(this.value)" />
+        <div class="slider-ticks">
+          <span>0</span><span>64</span><span>128</span><span>192</span><span>255</span>
+        </div>
+      </div>
+
+      <!-- Direction Buttons -->
+      <div class="direction-buttons">
+        <button class="btn-motor btn-reverse" id="btn-reverse" onclick="sendMotor('reverse')">
+          ◀ Reverse
+        </button>
+        <button class="btn-motor btn-stop" id="btn-stop" onclick="sendMotor('stop')">
+          ⏹ Stop
+        </button>
+        <button class="btn-motor btn-forward" id="btn-forward" onclick="sendMotor('forward')">
+          Forward ▶
+        </button>
+      </div>
+
+      <!-- Motor Status Info -->
+      <div class="motor-info-grid">
+        <div class="info-cell">
+          <span class="info-label">Direction</span>
+          <span class="info-val" id="info-direction">Stop</span>
+        </div>
+        <div class="info-cell">
+          <span class="info-label">PWM Duty</span>
+          <span class="info-val" id="info-pwm">0</span>
+        </div>
+        <div class="info-cell">
+          <span class="info-label">Speed Value</span>
+          <span class="info-val" id="info-speed">0/255</span>
+        </div>
+        <div class="info-cell">
+          <span class="info-label">Last Update</span>
+          <span class="info-val" id="info-time">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ MQTT LOG PANEL ════════════════════════════════ -->
+    <section class="card log-card">
+      <div class="card-header">
+        <div class="card-title">
+          <span class="card-icon">📡</span>
+          <h2>MQTT Live Log</h2>
+        </div>
+        <button class="btn-sm" onclick="clearLog()">Clear</button>
+      </div>
+      <div class="log-box" id="log-box"></div>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
